@@ -23,7 +23,7 @@ Une API REST complète pour télécharger des vidéos depuis différentes platef
 
 1. **Cloner le projet**
 ```bash
-git clone <repository-url>
+git clone <url>
 cd VIDEO_DOWNLOADER
 ```
 
