@@ -500,42 +500,7 @@ Les logs sont configurés dans `settings.py` et peuvent être consultés dans :
 
 ---
 
-## 🚀 Déploiement
+## Support
 
-### Production
-1. Configurer les variables d'environnement
-2. Utiliser un serveur WSGI (Gunicorn)
-3. Configurer un reverse proxy (Nginx)
-4. Utiliser Redis en production
-5. Configurer les tâches Celery avec Supervisor
-
-### Docker (optionnel)
-```bash
-docker-compose up -d
-```
-
----
-
-## 🤝 Contribution
-
-1. Fork le projet
-2. Créer une branche feature (`git checkout -b feature/AmazingFeature`)
-3. Commit les changements (`git commit -m 'Add some AmazingFeature'`)
-4. Push vers la branche (`git push origin feature/AmazingFeature`)
-5. Ouvrir une Pull Request
-
----
-
-## 📄 Licence
-
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
-
----
-
-## 🆘 Support
-
-Pour toute question ou problème :
-- Ouvrir une issue sur GitHub
-- Consulter la documentation Swagger : `http://localhost:8000/swagger/`
-- Vérifier les logs de l'application
+Pour toute question ou problème, veuillez   me  contacter par mail billaassouma@188gmail.com ou +229 53400160.
 # video_donwloader_DJANGORESTFRAMEWORK
