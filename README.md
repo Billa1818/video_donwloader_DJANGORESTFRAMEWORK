@@ -90,8 +90,3 @@ celery -A VIDEO_DOWNLOADER worker --loglevel=info
 ## Personnalisation
 - Pour ajouter d'autres plateformes, formats ou logiques, voir le dossier `downloader/`.
 - Pour modifier la fréquence de nettoyage automatique, voir la config Celery dans `VIDEO_DOWNLOADER/celery.py`.
-
----
-
-## Licence
-MIT
