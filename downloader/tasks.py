@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
-from .models import VideoDownload, DownloadHistory, DownloadStatistics, Platform
+from .models import VideoDownload, Platform
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class VideoDownloadProgress:
                 download.save(update_fields=['status', 'progress_percentage', 'started_at'])
             
             elif d['status'] == 'finished':
-                download.progress_percentage = 100
+                download.progress_percentage = 99  # On ne met plus 100 ici
                 download.save(update_fields=['progress_percentage'])
                 
         except Exception as e:
@@ -89,20 +89,25 @@ def download_video_task(self, download_id):
         }
         
         # Configuration de la qualité
-        if download.requested_quality == 'best':
-            if download.download_audio_only:
-                ydl_opts['format'] = 'bestaudio/best'
+        generic_qualities = ['best', 'worst', '144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p']
+        if download.requested_quality in generic_qualities:
+            if download.requested_quality == 'best':
+                if download.download_audio_only:
+                    ydl_opts['format'] = 'bestaudio/best'
+                else:
+                    ydl_opts['format'] = 'best[height<=1080]'
+            elif download.requested_quality == 'worst':
+                ydl_opts['format'] = 'worst'
             else:
-                ydl_opts['format'] = 'best[height<=1080]'
-        elif download.requested_quality == 'worst':
-            ydl_opts['format'] = 'worst'
+                # Qualité spécifique (720p, 480p, etc.)
+                height = download.requested_quality.replace('p', '')
+                if download.download_audio_only:
+                    ydl_opts['format'] = 'bestaudio/best'
+                else:
+                    ydl_opts['format'] = f'best[height<={height}]'
         else:
-            # Qualité spécifique (720p, 480p, etc.)
-            height = download.requested_quality.replace('p', '')
-            if download.download_audio_only:
-                ydl_opts['format'] = 'bestaudio/best'
-            else:
-                ydl_opts['format'] = f'best[height<={height}]'
+            # Cas d'un format_id yt-dlp (ex: '140', '18', 'sb3', etc.)
+            ydl_opts['format'] = download.requested_quality
         
         # Téléchargement avec yt-dlp
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -135,16 +140,10 @@ def download_video_task(self, download_id):
                     download.file_path = relative_path
                     download.file_size = file_size
                     download.actual_quality = info.get('height', download.requested_quality)
+                    download.progress_percentage = 100  # On met 100% ici, à la toute fin
                     download.status = 'completed'
                     download.completed_at = timezone.now()
-                    download.progress_percentage = 100
                     download.save()
-                    
-                    # Créer l'historique
-                    create_download_history(download, info, progress_tracker.start_time)
-                    
-                    # Mettre à jour les statistiques
-                    update_download_statistics(download, success=True)
                     
                     logger.info(f"Téléchargement terminé avec succès: {download_id}")
                     
@@ -168,9 +167,6 @@ def download_video_task(self, download_id):
             download.error_message = str(e)[:500]
             download.completed_at = timezone.now()
             download.save()
-            
-            # Mettre à jour les statistiques d'échec
-            update_download_statistics(download, success=False)
             
         except VideoDownload.DoesNotExist:
             pass
@@ -212,90 +208,9 @@ def download_bulk_videos_task(download_ids):
     return results
 
 
-def create_download_history(download, info, start_time):
-    """Créer l'historique du téléchargement"""
-    try:
-        processing_time = None
-        if start_time and download.completed_at:
-            processing_time = int((download.completed_at - start_time).total_seconds())
-        
-        # Calcul de la vitesse de téléchargement
-        download_speed = None
-        if processing_time and download.file_size:
-            speed_bps = download.file_size / processing_time  # bytes per second
-            download_speed = int(speed_bps / 1024 * 8)  # Kbps
-        
-        DownloadHistory.objects.create(
-            download=download,
-            extractor_used=info.get('extractor', 'yt-dlp'),
-            format_id=info.get('format_id', ''),
-            codec=info.get('vcodec', ''),
-            bitrate=info.get('tbr'),
-            fps=info.get('fps'),
-            processing_time_seconds=processing_time,
-            download_speed_kbps=download_speed,
-            uploader=info.get('uploader', '')[:200],
-            upload_date=parse_upload_date(info.get('upload_date')),
-            view_count=info.get('view_count'),
-            like_count=info.get('like_count')
-        )
-        
-        logger.info(f"Historique créé pour le téléchargement {download.id}")
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la création de l'historique: {e}")
-
-
-def parse_upload_date(date_str):
-    """Parse la date d'upload depuis yt-dlp"""
-    if not date_str:
-        return None
-    
-    try:
-        # Format: YYYYMMDD
-        if len(date_str) == 8:
-            return datetime.strptime(date_str, '%Y%m%d').date()
-    except:
-        pass
-    
-    return None
-
-
-def update_download_statistics(download, success=True):
-    """Mettre à jour les statistiques de téléchargement"""
-    try:
-        today = timezone.now().date()
-        stats, created = DownloadStatistics.objects.get_or_create(
-            platform=download.platform,
-            date=today,
-            defaults={
-                'total_downloads': 0,
-                'successful_downloads': 0,
-                'failed_downloads': 0,
-                'total_size_mb': 0
-            }
-        )
-        
-        stats.total_downloads += 1
-        
-        if success:
-            stats.successful_downloads += 1
-            if download.file_size:
-                stats.total_size_mb += int(download.file_size / (1024 * 1024))
-        else:
-            stats.failed_downloads += 1
-        
-        stats.save()
-        
-        logger.info(f"Statistiques mises à jour pour {download.platform.display_name}")
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour des statistiques: {e}")
-
-
 @shared_task
 def cleanup_old_downloads():
-    """Tâche de nettoyage des anciens téléchargements"""
+    """Tâche de nettoyage des anciens téléchargements et des fichiers orphelins"""
     logger.info("Début du nettoyage des anciens téléchargements")
     
     # Supprimer les téléchargements expirés
@@ -329,45 +244,21 @@ def cleanup_old_downloads():
     
     logger.info(f"Nettoyage terminé: {deleted_count} téléchargements expirés, {failed_deleted} échecs anciens supprimés")
     
+    # Nettoyage des fichiers orphelins dans le dossier downloads
+    download_dir = os.path.join(settings.MEDIA_ROOT, 'downloads')
+    if os.path.exists(download_dir):
+        all_files = set(os.listdir(download_dir))
+        referenced_files = set()
+        for vd in VideoDownload.objects.exclude(file_path__isnull=True).exclude(file_path__exact=''):
+            referenced_files.add(os.path.basename(vd.file_path.name if hasattr(vd.file_path, 'name') else vd.file_path))
+        orphan_files = all_files - referenced_files
+        for filename in orphan_files:
+            try:
+                file_path = os.path.join(download_dir, filename)
+                os.remove(file_path)
+                logger.info(f"Fichier orphelin supprimé: {filename}")
+            except Exception as e:
+                logger.warning(f"Erreur lors de la suppression du fichier orphelin {filename}: {e}")
+
+    logger.info("Nettoyage terminé")
     return f"Supprimé: {deleted_count + failed_deleted} éléments"
-
-
-@shared_task
-def update_daily_statistics():
-    """Tâche pour calculer les statistiques quotidiennes"""
-    logger.info("Mise à jour des statistiques quotidiennes")
-    
-    yesterday = (timezone.now() - timedelta(days=1)).date()
-    
-    platforms = Platform.objects.all()
-    
-    for platform in platforms:
-        downloads = VideoDownload.objects.filter(
-            platform=platform,
-            created_at__date=yesterday
-        )
-        
-        if downloads.exists():
-            total = downloads.count()
-            successful = downloads.filter(status='completed').count()
-            failed = downloads.filter(status='failed').count()
-            
-            total_size_bytes = downloads.filter(
-                status='completed'
-            ).aggregate(total=models.Sum('file_size'))['total'] or 0
-            
-            total_size_mb = int(total_size_bytes / (1024 * 1024))
-            
-            DownloadStatistics.objects.update_or_create(
-                platform=platform,
-                date=yesterday,
-                defaults={
-                    'total_downloads': total,
-                    'successful_downloads': successful,
-                    'failed_downloads': failed,
-                    'total_size_mb': total_size_mb
-                }
-            )
-    
-    logger.info("Statistiques quotidiennes mises à jour")
-    return f"Statistiques mises à jour pour {platforms.count()} plateformes"

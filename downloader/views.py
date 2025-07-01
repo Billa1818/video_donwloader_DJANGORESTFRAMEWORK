@@ -11,19 +11,17 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import (
-    Platform, VideoDownload, DownloadStatistics, 
-    DownloadHistory, SupportedFormat
+    Platform, VideoDownload, SupportedFormat
 )
 from .serializers import (
     PlatformSerializer, VideoDownloadCreateSerializer,
     VideoDownloadSerializer, VideoDownloadListSerializer,
-    VideoDownloadStatusSerializer, DownloadHistorySerializer,
-    DownloadStatisticsSerializer, DownloadStatsAggregatedSerializer,
-    URLValidationSerializer, BulkDownloadSerializer,
+    VideoDownloadStatusSerializer, URLValidationSerializer, BulkDownloadSerializer,
     SupportedFormatSerializer
 )
 from .tasks import download_video_task, download_bulk_videos_task
 import logging
+import yt_dlp
 
 logger = logging.getLogger(__name__)
 
@@ -213,54 +211,6 @@ class VideoDownloadDeleteView(generics.DestroyAPIView):
         # Supprimer l'objet de la base de données
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class DownloadHistoryListView(generics.ListAPIView):
-    """Historique des téléchargements"""
-    queryset = DownloadHistory.objects.select_related('download', 'download__platform')
-    serializer_class = DownloadHistorySerializer
-    permission_classes = [permissions.AllowAny]
-    pagination_class = StandardResultsSetPagination
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['download__platform', 'download__status']
-    ordering_fields = ['created_at', 'processing_time_seconds', 'download_speed_kbps']
-    ordering = ['-created_at']
-    
-    @swagger_auto_schema(
-        operation_description="Récupère l'historique des téléchargements avec métadonnées techniques",
-        manual_parameters=[
-            openapi.Parameter('download__platform', openapi.IN_QUERY, description="ID de la plateforme", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('download__status', openapi.IN_QUERY, description="Statut du téléchargement", type=openapi.TYPE_STRING),
-            openapi.Parameter('ordering', openapi.IN_QUERY, description="Trier par champ", type=openapi.TYPE_STRING),
-        ],
-        responses={200: "Historique des téléchargements"}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-
-
-class DownloadStatisticsListView(generics.ListAPIView):
-    """Statistiques de téléchargement par jour et plateforme"""
-    queryset = DownloadStatistics.objects.select_related('platform')
-    serializer_class = DownloadStatisticsSerializer
-    permission_classes = [permissions.AllowAny]
-    pagination_class = StandardResultsSetPagination
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['platform', 'date']
-    ordering_fields = ['date', 'total_downloads', 'success_rate']
-    ordering = ['-date']
-    
-    @swagger_auto_schema(
-        operation_description="Récupère les statistiques de téléchargement par jour et plateforme",
-        manual_parameters=[
-            openapi.Parameter('platform', openapi.IN_QUERY, description="ID de la plateforme", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('date', openapi.IN_QUERY, description="Date (YYYY-MM-DD)", type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-            openapi.Parameter('ordering', openapi.IN_QUERY, description="Trier par champ", type=openapi.TYPE_STRING),
-        ],
-        responses={200: "Statistiques de téléchargement"}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
 
 
 @swagger_auto_schema(
@@ -582,3 +532,90 @@ def health_check(request):
     }
     
     return Response(health_data)
+
+
+@api_view(['POST'])
+def available_formats(request):
+    url = request.data.get('url')
+    if not url:
+        return Response({'error': 'URL manquante'}, status=400)
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+            # On cherche tous les formats vidéo (vcodec != 'none')
+            video_formats = [f for f in formats if f.get('vcodec') and f['vcodec'] != 'none']
+            audio_formats = [f for f in formats if f.get('acodec') and f['acodec'] != 'none' and (not f.get('vcodec') or f['vcodec'] == 'none')]
+            result = []
+            for vf in video_formats:
+                # Format combiné (déjà vidéo+audio)
+                if vf.get('acodec') and vf['acodec'] != 'none':
+                    result.append({
+                        'format_id': vf.get('format_id'),
+                        'ext': vf.get('ext'),
+                        'height': vf.get('height'),
+                        'width': vf.get('width'),
+                        'acodec': vf.get('acodec'),
+                        'vcodec': vf.get('vcodec'),
+                        'format_note': vf.get('format_note'),
+                        'filesize': vf.get('filesize'),
+                        'tbr': vf.get('tbr'),
+                        'fps': vf.get('fps'),
+                        'audio_only': False,
+                        'video_only': False,
+                        'format': vf.get('format'),
+                        'url': vf.get('url', vf.get('manifest_url')),
+                        'merge': False,
+                        'yt_dlp_format': vf.get('format_id'),
+                    })
+                # Format vidéo seul, on fusionne avec le meilleur audio
+                else:
+                    best_audio = None
+                    if audio_formats:
+                        # On prend le meilleur audio (par tbr ou filesize)
+                        best_audio = max(audio_formats, key=lambda af: af.get('tbr') or 0)
+                    if best_audio:
+                        yt_dlp_format = f"{vf.get('format_id')}+{best_audio.get('format_id')}"
+                        result.append({
+                            'format_id': f"{vf.get('format_id')}+{best_audio.get('format_id')}",
+                            'ext': vf.get('ext'),
+                            'height': vf.get('height'),
+                            'width': vf.get('width'),
+                            'acodec': best_audio.get('acodec'),
+                            'vcodec': vf.get('vcodec'),
+                            'format_note': vf.get('format_note'),
+                            'filesize': vf.get('filesize'),
+                            'tbr': vf.get('tbr'),
+                            'fps': vf.get('fps'),
+                            'audio_only': False,
+                            'video_only': False,
+                            'format': vf.get('format'),
+                            'url': None,
+                            'merge': True,
+                            'yt_dlp_format': yt_dlp_format,
+                        })
+            # Ajout des formats audio seuls
+            for af in audio_formats:
+                result.append({
+                    'format_id': af.get('format_id'),
+                    'ext': af.get('ext'),
+                    'height': None,
+                    'width': None,
+                    'acodec': af.get('acodec'),
+                    'vcodec': af.get('vcodec'),
+                    'format_note': af.get('format_note'),
+                    'filesize': af.get('filesize'),
+                    'tbr': af.get('tbr'),
+                    'fps': None,
+                    'audio_only': True,
+                    'video_only': False,
+                    'format': af.get('format'),
+                    'url': af.get('url', af.get('manifest_url')),
+                    'merge': False,
+                    'yt_dlp_format': af.get('format_id'),
+                })
+            # On trie par hauteur décroissante (résolution la plus haute en premier, puis audio_only à la fin)
+            result = sorted(result, key=lambda x: (x['audio_only'], -(x['height'] or 0) if x['height'] else 0))
+            return Response({'formats': result})
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)

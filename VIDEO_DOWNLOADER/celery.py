@@ -9,12 +9,8 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
 
 app.conf.beat_schedule = {
-    'cleanup-old-downloads-every-day': {
+    'cleanup-old-downloads-every-3h': {
         'task': 'downloader.tasks.cleanup_old_downloads',
-        'schedule': crontab(hour=2, minute=0),
-    },
-    'update-daily-statistics-every-day': {
-        'task': 'downloader.tasks.update_daily_statistics',
-        'schedule': crontab(hour=2, minute=30),
+        'schedule': crontab(minute=0, hour='*/3'),
     },
 } 

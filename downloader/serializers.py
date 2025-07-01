@@ -2,8 +2,7 @@ from rest_framework import serializers
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 from .models import (
-    Platform, VideoDownload, DownloadStatistics, 
-    DownloadHistory, SupportedFormat
+    Platform, VideoDownload, SupportedFormat
 )
 import re
 from urllib.parse import urlparse
@@ -192,79 +191,6 @@ class VideoDownloadStatusSerializer(serializers.ModelSerializer):
             'error_message', 'started_at', 'completed_at'
         ]
         read_only_fields = ['id']
-
-
-class DownloadHistorySerializer(serializers.ModelSerializer):
-    """Serializer pour l'historique des téléchargements"""
-    download_title = serializers.CharField(source='download.title', read_only=True)
-    platform_name = serializers.CharField(source='download.platform.display_name', read_only=True)
-    processing_time_formatted = serializers.SerializerMethodField()
-    download_speed_formatted = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = DownloadHistory
-        fields = [
-            'id', 'download', 'download_title', 'platform_name',
-            'extractor_used', 'format_id', 'codec', 'bitrate', 'fps',
-            'processing_time_seconds', 'processing_time_formatted',
-            'download_speed_kbps', 'download_speed_formatted',
-            'uploader', 'upload_date', 'view_count', 'like_count',
-            'created_at'
-        ]
-        read_only_fields = ['id', 'created_at']
-    
-    def get_processing_time_formatted(self, obj):
-        """Formate le temps de traitement"""
-        if obj.processing_time_seconds:
-            minutes = obj.processing_time_seconds // 60
-            seconds = obj.processing_time_seconds % 60
-            return f"{minutes}m {seconds}s"
-        return None
-    
-    def get_download_speed_formatted(self, obj):
-        """Formate la vitesse de téléchargement"""
-        if obj.download_speed_kbps:
-            if obj.download_speed_kbps >= 1000:
-                mbps = obj.download_speed_kbps / 1000
-                return f"{mbps:.1f} Mbps"
-            else:
-                return f"{obj.download_speed_kbps} Kbps"
-        return None
-
-
-class DownloadStatisticsSerializer(serializers.ModelSerializer):
-    """Serializer pour les statistiques"""
-    platform_name = serializers.CharField(source='platform.display_name', read_only=True)
-    success_rate = serializers.ReadOnlyField()
-    total_size_gb = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = DownloadStatistics
-        fields = [
-            'id', 'platform', 'platform_name', 'date',
-            'total_downloads', 'successful_downloads', 'failed_downloads',
-            'success_rate', 'total_size_mb', 'total_size_gb'
-        ]
-        read_only_fields = ['id']
-    
-    def get_total_size_gb(self, obj):
-        """Convertit la taille en GB"""
-        if obj.total_size_mb:
-            return round(obj.total_size_mb / 1024, 2)
-        return 0
-
-
-class DownloadStatsAggregatedSerializer(serializers.Serializer):
-    """Serializer pour les statistiques agrégées"""
-    total_downloads = serializers.IntegerField()
-    successful_downloads = serializers.IntegerField()
-    failed_downloads = serializers.IntegerField()
-    success_rate = serializers.FloatField()
-    total_size_gb = serializers.FloatField()
-    most_popular_platform = serializers.CharField()
-    avg_file_size_mb = serializers.FloatField()
-    downloads_last_24h = serializers.IntegerField()
-    downloads_last_week = serializers.IntegerField()
 
 
 class URLValidationSerializer(serializers.Serializer):

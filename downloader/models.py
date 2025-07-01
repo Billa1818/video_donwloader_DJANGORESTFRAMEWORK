@@ -70,7 +70,7 @@ class VideoDownload(models.Model):
     thumbnail_url = models.URLField(blank=True, null=True)
     
     # Paramètres de téléchargement
-    requested_quality = models.CharField(max_length=20, choices=QUALITY_CHOICES, default='best')
+    requested_quality = models.CharField(max_length=50, default='best')
     download_audio_only = models.BooleanField(default=False)
     
     # Statut et progression
@@ -128,62 +128,10 @@ class VideoDownload(models.Model):
             return os.path.basename(self.file_path.name)
         return None
 
-
-class DownloadStatistics(models.Model):
-    """Modèle pour les statistiques de téléchargement"""
-    platform = models.ForeignKey(Platform, on_delete=models.CASCADE)
-    date = models.DateField()
-    total_downloads = models.PositiveIntegerField(default=0)
-    successful_downloads = models.PositiveIntegerField(default=0)
-    failed_downloads = models.PositiveIntegerField(default=0)
-    total_size_mb = models.PositiveBigIntegerField(default=0)
-    
-    class Meta:
-        verbose_name = "Statistique de téléchargement"
-        verbose_name_plural = "Statistiques de téléchargement"
-        unique_together = ['platform', 'date']
-        ordering = ['-date']
-    
-    def __str__(self):
-        return f"{self.platform.display_name} - {self.date}"
-    
-    @property
-    def success_rate(self):
-        """Taux de réussite en pourcentage"""
-        if self.total_downloads > 0:
-            return round((self.successful_downloads / self.total_downloads) * 100, 2)
-        return 0
-
-
-class DownloadHistory(models.Model):
-    """Historique des téléchargements pour analytics"""
-    download = models.OneToOneField(VideoDownload, on_delete=models.CASCADE)
-    
-    # Informations techniques
-    extractor_used = models.CharField(max_length=100, blank=True, null=True)
-    format_id = models.CharField(max_length=50, blank=True, null=True)
-    codec = models.CharField(max_length=50, blank=True, null=True)
-    bitrate = models.PositiveIntegerField(blank=True, null=True)
-    fps = models.PositiveIntegerField(blank=True, null=True)
-    
-    # Temps de traitement
-    processing_time_seconds = models.PositiveIntegerField(blank=True, null=True)
-    download_speed_kbps = models.PositiveIntegerField(blank=True, null=True)
-    
-    # Métadonnées supplémentaires
-    uploader = models.CharField(max_length=200, blank=True, null=True)
-    upload_date = models.DateField(blank=True, null=True)
-    view_count = models.PositiveBigIntegerField(blank=True, null=True)
-    like_count = models.PositiveBigIntegerField(blank=True, null=True)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        verbose_name = "Historique de téléchargement"
-        verbose_name_plural = "Historiques de téléchargement"
-    
-    def __str__(self):
-        return f"Historique - {self.download.title or 'Vidéo'}"
+    def delete(self, *args, **kwargs):
+        if self.status not in ['completed', 'failed', 'cancelled']:
+            raise Exception("Impossible de supprimer un téléchargement en cours. Attendez qu'il soit terminé ou échoué.")
+        super().delete(*args, **kwargs)
 
 
 class SupportedFormat(models.Model):

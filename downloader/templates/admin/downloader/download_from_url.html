@@ -1,0 +1,22 @@
+{% extends 'admin/base_site.html' %}
+{% load static %}
+
+{% block content %}
+  <h1>Ajouter un téléchargement vidéo</h1>
+  {% if error %}
+    <div style="color: red;">{{ error }}</div>
+  {% endif %}
+  <form method="post" style="margin-bottom: 2em;">
+    {% csrf_token %}
+    {{ form.url.label_tag }} {{ form.url }} <br><br>
+    {% if qualities %}
+      {{ form.quality.label_tag }} {{ form.quality }} <br><br>
+    {% endif %}
+    {{ form.audio_only.label_tag }} {{ form.audio_only }} <br><br>
+    <button type="submit" name="get_formats">Voir les formats disponibles</button>
+    {% if qualities %}
+      <button type="submit" name="download">Lancer le téléchargement</button>
+    {% endif %}
+  </form>
+  <a href="../">Retour à la liste des téléchargements</a>
+{% endblock %} 
