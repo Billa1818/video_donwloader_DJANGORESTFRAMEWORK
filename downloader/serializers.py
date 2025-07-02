@@ -183,12 +183,21 @@ class VideoDownloadListSerializer(serializers.ModelSerializer):
 class VideoDownloadStatusSerializer(serializers.ModelSerializer):
     """Serializer pour les mises à jour de statut"""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    
+    download_url = serializers.SerializerMethodField()
+
+    def get_download_url(self, obj):
+        if obj.status == 'completed' and obj.file_path:
+            try:
+                return obj.file_path.url  # ou le chemin relatif
+            except Exception:
+                return None
+        return None
+
     class Meta:
         model = VideoDownload
         fields = [
             'id', 'status', 'status_display', 'progress_percentage',
-            'error_message', 'started_at', 'completed_at'
+            'error_message', 'started_at', 'completed_at', 'download_url'
         ]
         read_only_fields = ['id']
 
