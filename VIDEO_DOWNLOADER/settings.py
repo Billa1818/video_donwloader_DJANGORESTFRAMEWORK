@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'drf_yasg',
     'corsheaders',
 ]
+CORS_ALLOW_ALL_ORIGINS = True
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
